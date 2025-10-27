@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Source {
+  id            String   @id @default(cuid())
+  name          String
+  type          String
+  region        String
+  url           String   @unique
+  scraperType   String   @map("scraper_type")
+  active        Boolean  @default(true)
+  lastScraped   DateTime? @map("last_scraped")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  
+  nabory        Nabor[]
+  scrapingLogs  ScrapingLog[]
+  
+  @@map("sources")
+}
+
+model Nabor {
+  id            String   @id @default(cuid())
+  sourceId      String   @map("source_id")
+  title         String
+  institution   String
+  description   String?  @db.Text
+  beneficiaries String?
+  dateFrom      DateTime? @map("date_from")
+  dateTo        DateTime? @map("date_to")
+  deadline      DateTime?
+  amount        String?
+  budget        String?
+  type          String?
+  link          String?
+  status        String   @default("active")
+  contentHash   String   @map("content_hash")
+  scrapedAt     DateTime @default(now()) @map("scraped_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  
+  source        Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  
+  @@unique([contentHash])
+  @@index([sourceId])
+  @@index([dateFrom])
+  @@index([dateTo])
+  @@index([deadline])
+  @@index([status])
+  @@map("nabory")
+}
+
+model ScrapingLog {
+  id            String   @id @default(cuid())
+  sourceId      String   @map("source_id")
+  status        String   // success, error, partial
+  errorMessage  String?  @map("error_message")
+  itemsFound    Int      @default(0) @map("items_found")
+  timestamp     DateTime @default(now())
+  
+  source        Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  
+  @@index([sourceId])
+  @@index([timestamp])
+  @@map("scraping_logs")
+}
