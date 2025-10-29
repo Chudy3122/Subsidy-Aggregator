@@ -1,37 +1,24 @@
 import { prisma } from '@/lib/db/prisma'
 import Link from 'next/link'
 import NaboryTable from './components/NaboryTable'
+import Header from './components/Header'
 
 export const dynamic = 'force-dynamic'
 
-type SafeNabor = {
-  id: string
-  title: string
-  institution: string
-  description: string | null
-  beneficiaries: string | null
-  dateFrom: string | null
-  dateTo: string | null
-  deadline: string | null
-  amount: string | null
-  budget: string | null
-  type: string | null
-  link: string | null
-  source: {
-    name: string
-    region: string
-  } | null
-}
-
 export default async function Home() {
-  const [naboryRaw, stats, totalSources] = await Promise.all([
+  const [allNabory, stats, totalSources] = await Promise.all([
     prisma.nabor.findMany({
       include: {
         source: {
-          select: { name: true, region: true },
+          select: {
+            name: true,
+            region: true,
+          },
         },
       },
-      orderBy: { scrapedAt: 'desc' },
+      orderBy: {
+        scrapedAt: 'desc',
+      },
     }),
     prisma.nabor.groupBy({
       by: ['status'],
@@ -42,71 +29,90 @@ export default async function Home() {
     }),
   ])
 
-  // Ujednolicenie dat do stringów – bezpieczne przejście do Client Component
-  const nabory: SafeNabor[] = naboryRaw.map((n) => ({
-    ...n,
-    dateFrom: n.dateFrom ? new Date(n.dateFrom).toISOString() : null,
-    dateTo: n.dateTo ? new Date(n.dateTo).toISOString() : null,
-    deadline: n.deadline ? new Date(n.deadline).toISOString() : null,
-    // Prisma potrafi zwrócić null dla relacji – zostawiamy jak jest
-    source: n.source
-      ? {
-          name: n.source.name,
-          region: n.source.region,
-        }
-      : null,
-  }))
+  // Deduplikacja - zachowaj tylko unikalne contentHash
+  const uniqueNabory = allNabory.reduce((acc, nabor) => {
+    const hash = nabor.contentHash || nabor.id
+    if (!acc.some((n) => (n.contentHash || n.id) === hash)) {
+      acc.push(nabor)
+    }
+    return acc
+  }, [] as typeof allNabory)
 
-  const totalNabory =
-    stats.reduce((acc, s) => acc + (s._count?._all ?? 0), 0) || nabory.length
+  console.log(`📊 Total: ${allNabory.length}, Unique: ${uniqueNabory.length}, Duplicates: ${allNabory.length - uniqueNabory.length}`)
 
+  const totalNabory = stats.reduce((acc, s) => acc + (s._count?._all ?? 0), 0)
   const activeCount =
     stats.find((s) => s.status === 'active')?._count?._all ?? 0
 
   return (
-    <main className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Agregator Dofinansowań</h1>
-          <p className="mt-2 text-gray-600">Automatyczne zbieranie informacji o naborach i projektach</p>
+    <div className="min-h-screen bg-gray-50">
+      <Header />
+      
+      <main className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {/* Title Section */}
+        <div className="mb-12">
+          <h1 className="text-4xl font-bold text-gray-900 mb-3">
+            Agregator Dofinansowań
+          </h1>
+          <p className="text-lg text-gray-600">
+            Automatyczne zbieranie informacji o naborach i projektach
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="text-sm text-gray-600">Wszystkie nabory</div>
-            <div className="text-3xl font-bold text-gray-900 mt-2">{totalNabory}</div>
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+          <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+            <div className="text-sm font-medium text-gray-600 uppercase tracking-wide mb-2">
+              Unikalne nabory
+            </div>
+            <div className="text-3xl font-bold text-gray-900">{uniqueNabory.length}</div>
+            {allNabory.length !== uniqueNabory.length && (
+              <div className="text-xs text-gray-500 mt-1">
+                ({allNabory.length - uniqueNabory.length} duplikatów ukrytych)
+              </div>
+            )}
           </div>
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="text-sm text-gray-600">Aktywne</div>
-            <div className="text-3xl font-bold text-green-600 mt-2">{activeCount}</div>
+
+          <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+            <div className="text-sm font-medium text-gray-600 uppercase tracking-wide mb-2">
+              Nabory aktywne
+            </div>
+            <div className="text-3xl font-bold text-[#8BBE3F]">{activeCount}</div>
           </div>
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="text-sm text-gray-600">Źródła</div>
-            <div className="text-3xl font-bold text-blue-600 mt-2">{totalSources}</div>
+
+          <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+            <div className="text-sm font-medium text-gray-600 uppercase tracking-wide mb-2">
+              Monitorowane źródła
+            </div>
+            <div className="text-3xl font-bold text-gray-900">{totalSources}</div>
           </div>
         </div>
 
-        <div className="mb-6 flex gap-4">
-          {/* Uwaga: to zrobi GET do endpointu API (pokaże JSON). Jeśli chcesz "wywołać joba",
-              lepsze jest fetch POST z akcji serwerowej lub przycisk w komponencie klienta. */}
+        {/* Action Buttons */}
+        <div className="mb-10 flex gap-4">
           <Link
             href="/api/scrape"
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="inline-block px-8 py-3 bg-[#8BBE3F] text-white rounded-md hover:bg-[#7AAD35] transition-colors font-medium text-sm uppercase tracking-wide"
             aria-label="Uruchom scraping wszystkich źródeł"
           >
-            Uruchom scraping
+            Uruchom pełny scraping
           </Link>
-          <Link
-            href="/admin"
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-            aria-label="Przejdź do panelu administracyjnego"
-          >
-            Panel administracyjny
-          </Link>
+          
+          {allNabory.length !== uniqueNabory.length && (
+            <form action="/api/deduplicate" method="POST">
+              <button
+                type="submit"
+                className="px-8 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors font-medium text-sm uppercase tracking-wide"
+              >
+                Usuń {allNabory.length - uniqueNabory.length} duplikatów z bazy
+              </button>
+            </form>
+          )}
         </div>
 
-        <NaboryTable nabory={nabory} />
-      </div>
-    </main>
+        {/* Table */}
+        <NaboryTable nabory={uniqueNabory} />
+      </main>
+    </div>
   )
 }
